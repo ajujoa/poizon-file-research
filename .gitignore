@@ -21,3 +21,7 @@ Thumbs.db
 output/
 data/
 .hermes/
+
+# 민감정보
+config/dbconfig.ini
+xls/
