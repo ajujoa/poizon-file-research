@@ -114,7 +114,7 @@ def main():
 
     print(f"\n{'=' * 50}")
     print(f"  전체 완료")
-    print(f"  Poizon SKU: {summary['total']:,} | 무신사: {result['found']}개 발견, {result['saved']}건 저장")
+    print(f"  Poizon SKU: {summary['total']:,} | 무신사: {result['found']}개 발견, 재고 {result['in_stock']}개")
     print(f"{'=' * 50}")
 
     return 0
