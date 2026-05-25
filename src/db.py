@@ -1,26 +1,32 @@
-# 데이터베이스 연결 및 관리
-
+"""MariaDB 연결 관리"""
 import pymysql
-from typing import Optional
 
 
 class Database:
-    """MariaDB 연결 관리"""
-
-    def __init__(self, host: str, port: int, user: str, password: str, database: str):
+    def __init__(self, host="localhost", user="naver", password="naver1234",
+                 database="poizon_research", charset="utf8mb4"):
         self.config = {
             "host": host,
-            "port": port,
             "user": user,
             "password": password,
             "database": database,
-            "charset": "utf8mb4",
+            "charset": charset,
+            "cursorclass": pymysql.cursors.DictCursor,
         }
-        self.conn: Optional[pymysql.Connection] = None
+        self.conn = None
 
     def connect(self):
         self.conn = pymysql.connect(**self.config)
+        return self.conn
 
     def close(self):
         if self.conn:
             self.conn.close()
+            self.conn = None
+
+    def __enter__(self):
+        self.connect()
+        return self.conn
+
+    def __exit__(self, *args):
+        self.close()

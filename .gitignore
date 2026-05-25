@@ -24,4 +24,6 @@ data/
 
 # 민감정보
 config/dbconfig.ini
+config/poizon_config.ini
+logs/
 xls/
