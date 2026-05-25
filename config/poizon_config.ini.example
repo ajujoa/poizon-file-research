@@ -1,0 +1,10 @@
+[Credentials]
+email = your@email.com
+password = yourpassword
+
+[Brands]
+list = PUMA, Adidas, New Balance, Under Armour, ASICS, Jordan, THE NORTH FACE, Nike, Adidas Originals, FILA, Reebok, Vans, Converse, FILA KIDS, Kappa, UGG
+
+[Crawl]
+# recency: today / 1hour / 4hour / 0(무조건 새로 다운)
+recency = today

@@ -55,6 +55,16 @@ class PoizonCrawler:
         raw = self.config.get('Brands', 'list', fallback='')
         self.brand_list = [b.strip() for b in raw.split(',') if b.strip()]
 
+        # recency 설정 파싱
+        recency_raw = self.config.get('Crawl', 'recency', fallback='today').strip().lower()
+        if recency_raw == '0':
+            self.recency = 'skip'  # 무조건 새로 다운
+        elif recency_raw in ('today', '1hour', '4hour'):
+            self.recency = recency_raw
+        else:
+            self.logger.warning(f"알 수 없는 recency 값 '{recency_raw}', 'today'로 fallback")
+            self.recency = 'today'
+
     # ── 브라우저 ─────────────────────────────────────
 
     def _init_browser(self):
@@ -378,6 +388,70 @@ class PoizonCrawler:
 
         return all_products
 
+    # ── 로컬 파일 체크 ───────────────────────────────
+
+    def _recency_to_hours(self) -> int:
+        """recency 설정을 시간으로 변환"""
+        if self.recency == 'today':
+            return 24
+        elif self.recency == '1hour':
+            return 1
+        elif self.recency == '4hour':
+            return 4
+        return 24
+
+    def _check_local_file(self, save_dir: Path) -> Path | None:
+        """xls/ 폴더에서 recency 조건에 맞는 파일이 있는지 확인"""
+        import re
+        from datetime import datetime as _dt
+
+        if not save_dir.exists():
+            return None
+
+        now = _dt.now()
+        today_str = now.strftime('%Y%m%d')
+        pattern = re.compile(r'Export item search results(\d{8})\.xlsx$')
+
+        candidates = []
+        for f in save_dir.iterdir():
+            if not f.is_file():
+                continue
+            m = pattern.match(f.name)
+            if not m:
+                continue
+            file_date = m.group(1)
+            candidates.append((f, file_date))
+
+        if not candidates:
+            self.logger.info(f"xls/에 Export 파일 없음")
+            return None
+
+        if self.recency == 'today':
+            # 오늘 날짜 파일명 체크
+            for f, file_date in candidates:
+                if file_date == today_str:
+                    self.logger.info(f"오늘 날짜 로컬 파일 발견: {f.name}")
+                    return f
+            self.logger.info(f"오늘 날짜({today_str}) 로컬 파일 없음")
+            return None
+
+        elif self.recency in ('1hour', '4hour'):
+            # 파일 수정 시간 기준 체크
+            hours = self._recency_to_hours()
+            for f, file_date in sorted(candidates, key=lambda x: x[0].stat().st_mtime, reverse=True):
+                mtime = _dt.fromtimestamp(f.stat().st_mtime)
+                diff_seconds = (now - mtime).total_seconds()
+                if 0 <= diff_seconds <= hours * 3600:
+                    self.logger.info(
+                        f"{hours}h 이내 로컬 파일 발견: {f.name} "
+                        f"(수정: {mtime.strftime('%H:%M:%S')}, {diff_seconds:.0f}s 전)"
+                    )
+                    return f
+            self.logger.info(f"{hours}h 이내 로컬 파일 없음")
+            return None
+
+        return None
+
     # ── Export Center ────────────────────────────────
 
     EXPORT_CENTER_URL = 'https://seller.poizon.com/main/exportCenter'
@@ -590,65 +664,88 @@ class PoizonCrawler:
     # ── 메인 ─────────────────────────────────────────
 
     def run(self, output_dir: str | None = None):
-        """로그인 → exportCenter 확인 → 최근 Export 없으면 전체 브랜드 선택 후 단일 Export"""
+        """recency 기반 3단계: 로컬 파일 → exportCenter → 전체 Export"""
         try:
-            if not self._init_browser():
-                return
-
-            if not self._login():
-                return
-
-            if not self.brand_list:
-                print("브랜드 리스트가 비어있음 (config/poizon_config.ini [Brands] 확인)")
-                return
-
-            # 출력 디렉토리
+            # 출력 디렉토리 (로그인 전에도 체크해야 하므로 먼저)
             save_dir = Path(output_dir) if output_dir else PROJECT_ROOT / 'xls'
             save_dir.mkdir(parents=True, exist_ok=True)
 
-            print(f"\n대상 브랜드 ({len(self.brand_list)}개): {', '.join(self.brand_list)}")
+            print(f"\n설정 recency: {self.recency}")
+            print(f"대상 브랜드 ({len(self.brand_list)}개): {', '.join(self.brand_list)}")
             print(f"저장 디렉토리: {save_dir}\n")
 
-            # 1. 먼저 exportCenter에서 최근(1h 이내) Export 확인
-            recent_task = self._check_recent_export(within_hours=1)
+            # ── 0. skip 모드: 바로 full export ──
+            if self.recency == 'skip':
+                print("recency=0 → 무조건 새로 다운로드\n")
+                return self._do_full_export(save_dir)
+
+            # ── 1. 로컬 파일 체크 (로그인 전) ──
+            local_file = self._check_local_file(save_dir)
+            if local_file:
+                print(f"로컬 파일 발견 → 크롤링 생략: {local_file.name}")
+                return [{'task_no': 'local', 'file': str(local_file)}]
+
+            # ── 2. 로그인 → exportCenter 체크 ──
+            if not self._init_browser():
+                return
+            if not self._login():
+                return
+
+            within_hours = self._recency_to_hours()
+            desc = '오늘' if self.recency == 'today' else f'{within_hours}h 이내'
+            print(f"exportCenter에서 {desc} Export 확인 중...")
+
+            recent_task = self._check_recent_export(within_hours=within_hours)
             if recent_task:
-                print(f"최근 Export 발견 (task_no={recent_task}) — 바로 다운로드")
+                print(f"Export 발견 (task_no={recent_task}) — 바로 다운로드")
                 filepath = self._download_export(recent_task, str(save_dir))
                 if filepath:
                     print(f"다운로드 완료: {filepath}")
                     return [{'task_no': recent_task, 'file': str(filepath)}]
                 print("다운로드 실패 — 새로 Export 진행")
 
-            print("최근 Export 없음 — 전체 브랜드 Export 시작\n")
-
-            # 2. 전체 브랜드 선택 + 단일 Export
-            if not self._go_to_item_search():
-                print("Item Search 이동 실패")
-                return
-
-            if not self._select_all_brands():
-                print("전체 브랜드 선택 실패")
-                return
-
-            self.page.wait_for_timeout(3000)
-
-            task_no = self._export_brand("ALL")
-            if not task_no:
-                print("Export 요청 실패")
-                return
-
-            if self._wait_for_export(task_no):
-                filepath = self._download_export(task_no, str(save_dir))
-                if filepath:
-                    print(f"\n{'='*50}")
-                    print(f"완료: {filepath}")
-                    return [{'task_no': task_no, 'file': str(filepath)}]
-                print("다운로드 실패")
-            else:
-                print("Export 타임아웃")
+            print(f"{desc} Export 없음 — 전체 브랜드 Export 시작\n")
+            return self._do_full_export(save_dir)
 
         finally:
             self.close()
+
+    def _do_full_export(self, save_dir: Path):
+        """전체 브랜드 선택 → Export → 대기 → 다운로드"""
+        if not self.page:
+            if not self._init_browser():
+                return
+            if not self._login():
+                return
+
+        if not self.brand_list:
+            print("브랜드 리스트가 비어있음 (config/poizon_config.ini [Brands] 확인)")
+            return
+
+        if not self._go_to_item_search():
+            print("Item Search 이동 실패")
+            return
+
+        if not self._select_all_brands():
+            print("전체 브랜드 선택 실패")
+            return
+
+        self.page.wait_for_timeout(3000)
+
+        task_no = self._export_brand("ALL")
+        if not task_no:
+            print("Export 요청 실패")
+            return
+
+        if self._wait_for_export(task_no):
+            filepath = self._download_export(task_no, str(save_dir))
+            if filepath:
+                print(f"\n{'='*50}")
+                print(f"완료: {filepath}")
+                return [{'task_no': task_no, 'file': str(filepath)}]
+            print("다운로드 실패")
+        else:
+            print("Export 타임아웃")
 
 
 # ── Entry Point ───────────────────────────────────────
