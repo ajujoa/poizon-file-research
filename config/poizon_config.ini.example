@@ -8,3 +8,10 @@ list = PUMA, Adidas, New Balance, Under Armour, ASICS, Jordan, THE NORTH FACE, N
 [Crawl]
 # recency: today / 1hour / 4hour / 0(무조건 새로 다운)
 recency = today
+
+[Musinsa]
+# 무신사 크롤링 설정
+min_sleep = 0.5
+max_sleep = 1.5
+# 검색 결과 없는 상품의 재시도 제외 기간 (일)
+exclude_days = 30

@@ -2,6 +2,7 @@
 1. 크롤링 (Playwright) → xls/ 다운로드
 2. DB 적재 (load_db)
 3. 사이즈 추출 (size_extractor)
+4. 무신사 크롤링 (musinsa) [옵션]
 """
 import sys
 import os
@@ -10,16 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def _count_xlsx_rows(filepath: str) -> int | None:
-    """xlsx 파일의 필터링 후 예상 행 수 (load_db와 동일한 필터 적용)"""
+    """xlsx 파일의 필터링 후 예상 행 수"""
     import re
     import pandas as pd
-
-    DROP_COLS = [
-        "Secondary Category", "Tertiary Category",
-        "Listing Eligibility: 1: Eligible; 2. Not Eligible",
-        "Barcode/UPC", "Sales by Local Sellers",
-        "SKU Source", "Seller SKU ID",
-    ]
 
     df = pd.read_excel(filepath, sheet_name=0)
     df = df[df["30-Day Average"].notna()]
@@ -36,7 +30,7 @@ def main():
     print("=" * 50)
 
     # ── Step 1: 크롤링 ──
-    print("\n[Step 1/3] 크롤링 시작...\n")
+    print("\n[Step 1/4] 크롤링 시작...\n")
     from crawler import PoizonCrawler
 
     crawler = PoizonCrawler(headless=True)
@@ -55,10 +49,8 @@ def main():
 
     db_status = r.get('db_status')
     if db_status and db_status['loaded']:
-        # 이미 DB에 적재됨 → 검증
-        print(f"\n[Step 2/3] DB 이미 적재됨 → 검증")
+        print(f"\n[Step 2/4] DB 이미 적재됨 → 검증")
         print(f"  DB: SPU {db_status['spu_count']:,}개, SKU {db_status['sku_count']:,}개")
-
         try:
             xlsx_rows = _count_xlsx_rows(r['file'])
             if xlsx_rows:
@@ -79,8 +71,7 @@ def main():
             if ret != 0:
                 return 1
     else:
-        # DB에 없음 → 적재
-        print(f"\n[Step 2/3] DB 적재 시작...\n")
+        print(f"\n[Step 2/4] DB 적재 시작...\n")
         if db_status:
             print(f"  DB 상태: 미적재")
         ret = load_db_main()
@@ -89,7 +80,7 @@ def main():
             return 1
 
     # ── Step 3: 사이즈 추출 ──
-    print("\n[Step 3/3] 사이즈 추출...\n")
+    print("\n[Step 3/4] 사이즈 추출...\n")
     from size_extractor import (
         extract_kr_size, extract_apparel_size,
         clean_apparel_size, show_summary,
@@ -106,14 +97,24 @@ def main():
     cleaned = clean_apparel_size(db)
     print(f"  불필요 사이즈 정리: {cleaned}건 제거")
 
-    # ── 현황 ──
     summary = show_summary(db)
     print(f"\n{'=' * 50}")
-    print(f"  최종 현황")
+    print(f"  Poizon DB 현황")
     print(f"  총 SKU: {summary['total']:,}")
     print(f"  Size_KR: {summary['kr']:,}")
     print(f"  Size_Apparel: {summary['apparel']:,}")
     print(f"  미추출: {summary['neither']:,}")
+
+    # ── Step 4: 무신사 크롤링 ──
+    print(f"\n[Step 4/4] 무신사 크롤링...\n")
+    from musinsa import MusinsaCrawler
+
+    musinsa = MusinsaCrawler(headless=True)
+    result = musinsa.run()
+
+    print(f"\n{'=' * 50}")
+    print(f"  전체 완료")
+    print(f"  Poizon SKU: {summary['total']:,} | 무신사: {result['found']}개 발견, {result['saved']}건 저장")
     print(f"{'=' * 50}")
 
     return 0
