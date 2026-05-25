@@ -452,6 +452,42 @@ class PoizonCrawler:
 
         return None
 
+    def _check_db_status(self, filepath: Path) -> dict:
+        """파일이 DB에 적재되었는지 확인 → {loaded, name, sku_count, spu_count}"""
+        import pymysql
+        import configparser
+
+        try:
+            db_cfg_path = PROJECT_ROOT / 'config' / 'dbconfig.ini'
+            cfg = configparser.ConfigParser()
+            cfg.read(str(db_cfg_path))
+            db = cfg['database']
+            conn = pymysql.connect(
+                host=db['host'], port=int(db['port']),
+                user=db['user'], password=db['password'],
+                database=db['database'], charset=db.get('charset', 'utf8mb4'),
+                cursorclass=pymysql.cursors.DictCursor,
+            )
+            cur = conn.cursor()
+            filename = filepath.name
+
+            cur.execute("SELECT COUNT(*) AS cnt FROM poizon_sku WHERE file_name = %s", (filename,))
+            sku_cnt = cur.fetchone()['cnt']
+
+            if sku_cnt == 0:
+                conn.close()
+                return {'loaded': False, 'name': filename, 'sku_count': 0, 'spu_count': 0}
+
+            cur.execute("SELECT COUNT(*) AS cnt FROM poizon_spu WHERE file_name = %s", (filename,))
+            spu_cnt = cur.fetchone()['cnt']
+
+            conn.close()
+            return {'loaded': True, 'name': filename, 'sku_count': sku_cnt, 'spu_count': spu_cnt}
+
+        except Exception as e:
+            self.logger.warning(f"DB 상태 확인 실패: {e}")
+            return {'loaded': False, 'name': filepath.name, 'sku_count': 0, 'spu_count': 0, 'error': str(e)}
+
     # ── Export Center ────────────────────────────────
 
     EXPORT_CENTER_URL = 'https://seller.poizon.com/main/exportCenter'
@@ -683,7 +719,8 @@ class PoizonCrawler:
             local_file = self._check_local_file(save_dir)
             if local_file:
                 print(f"로컬 파일 발견 → 크롤링 생략: {local_file.name}")
-                return [{'task_no': 'local', 'file': str(local_file)}]
+                db_status = self._check_db_status(local_file)
+                return [{'task_no': 'local', 'file': str(local_file), 'db_status': db_status}]
 
             # ── 2. 로그인 → exportCenter 체크 ──
             if not self._init_browser():
