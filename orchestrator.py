@@ -96,7 +96,7 @@ def run_script(script_name: str, timeout: int = 7200) -> bool:
 
 
 def run_daily_job():
-    """하루 1회 실행: main.py → 10초 → musinsa_pick.py"""
+    """하루 1회 실행: main.py → 10초 → musinsa_pick.py → dashboard"""
     log.info("=" * 50)
     log.info("데일리 파이프라인 시작")
     log.info("=" * 50)
@@ -114,6 +114,11 @@ def run_daily_job():
     time.sleep(10)
 
     run_script("musinsa_pick.py", timeout=600)
+
+    # 대시보드 생성
+    log.info("대시보드 생성...")
+    run_script("generate_dashboard.py", timeout=120)
+
     log.info("데일리 파이프라인 종료")
 
 

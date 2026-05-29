@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poizon Pick Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+  h1 { color: #58a6ff; margin-bottom: 8px; }
+  .sub { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  select, input { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+  select:focus, input:focus { outline: none; border-color: #58a6ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #161b22; padding: 8px 10px; text-align: left; border-bottom: 2px solid #30363d; color: #8b949e; position: sticky; top: 0; z-index: 1; }
+  td { padding: 6px 10px; border-bottom: 1px solid #21262d; }
+  tr:hover { background: #161b22; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .stock-y { color: #3fb950; }
+  .stock-n { color: #f85149; }
+  .price { text-align: right; font-variant-numeric: tabular-nums; }
+  .num { text-align: right; }
+  .brand { color: #8b949e; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .count { color: #8b949e; font-size: 13px; margin-left: auto; }
+  .hidden { display: none; }
+  .tab { padding: 8px 16px; background: #21262d; border: 1px solid #30363d; border-radius: 6px 6px 0 0; cursor: pointer; color: #8b949e; }
+  .tab.active { background: #0d1117; border-bottom-color: #0d1117; color: #58a6ff; }
+  .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
+</style>
+</head>
+<body>
+<h1>Poizon Pick Dashboard</h1>
+<p class="sub">musinsa &lt; cn_lowest x 0.85 (수수료 15% 감안) | 재고 있는 상품만 | 생성: __GENERATED_AT__</p>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('pick')">Pick</div>
+  <div class="tab" onclick="switchTab('history')">History</div>
+</div>
+
+<div id="tab-pick">
+  <div class="toolbar">
+    <div class="filters">
+      <select id="date-filter" onchange="filterTable()">
+        <option value="all">전체 날짜</option>
+        __DATE_OPTIONS__
+      </select>
+      <select id="brand-filter" onchange="filterTable()">
+        <option value="all">전체 브랜드</option>
+      </select>
+      <input type="text" id="search" placeholder="style_id / 상품명 검색" oninput="filterTable()">
+    </div>
+    <span class="count" id="row-count"></span>
+  </div>
+  <div style="overflow-x: auto; max-height: 80vh; overflow-y: auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>SPU ID</th>
+          <th>브랜드</th>
+          <th>Style ID</th>
+          <th>상품명</th>
+          <th>사이즈</th>
+          <th class="num">Est.Payout</th>
+          <th class="num">CN Lowest</th>
+          <th class="num">30일평균</th>
+          <th class="num">판매량</th>
+          <th class="num">무신사가</th>
+          <th>재고</th>
+          <th>링크</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="tab-history" class="hidden">
+  <h2 style="margin-bottom:16px;">날짜별 Pick History</h2>
+  <table>
+    <thead><tr><th>날짜</th><th>Pick 건수</th><th>스냅샷 보기</th></tr></thead>
+    <tbody>
+      __HISTORY_ROWS__
+    </tbody>
+  </table>
+</div>
+
+<script>
+var DATA = __DATA_JSON__;
+
+var brands = Array.from(new Set(DATA.map(function(d) { return d.brand; }))).sort();
+var brandSel = document.getElementById('brand-filter');
+brands.forEach(function(b) {
+  var o = document.createElement('option');
+  o.value = b;
+  o.textContent = b;
+  brandSel.appendChild(o);
+});
+
+function filterTable() {
+  var dateVal = document.getElementById('date-filter').value;
+  var brandVal = document.getElementById('brand-filter').value;
+  var searchVal = document.getElementById('search').value.toLowerCase();
+
+  var filtered = DATA.filter(function(d) {
+    if (dateVal !== 'all' && d.snap_date !== dateVal) return false;
+    if (brandVal !== 'all' && d.brand !== brandVal) return false;
+    if (searchVal && d.style_id.toLowerCase().indexOf(searchVal) === -1 && d.item_name.toLowerCase().indexOf(searchVal) === -1) return false;
+    return true;
+  });
+
+  var tbody = document.getElementById('table-body');
+  tbody.innerHTML = filtered.map(function(d) {
+    return '<tr>' +
+      '<td class="num">' + d.spu_id + '</td>' +
+      '<td class="brand">' + d.brand + '</td>' +
+      '<td><a href="' + d.poizon_link + '" target="_blank">' + d.style_id + '</a></td>' +
+      '<td>' + (d.musinsa_name || d.item_name).substring(0, 50) + '</td>' +
+      '<td>' + d.size_kr + '</td>' +
+      '<td class="price">' + d.est_payout.toLocaleString() + '</td>' +
+      '<td class="price">' + d.cn_lowest.toLocaleString() + '</td>' +
+      '<td class="price">' + d.avg_30_day.toLocaleString() + '</td>' +
+      '<td class="num">' + d.total_sales.toLocaleString() + '</td>' +
+      '<td class="price">' + d.musinsa_price.toLocaleString() + '</td>' +
+      '<td class="' + (d.in_stock ? 'stock-y' : 'stock-n') + '">' + (d.in_stock ? 'Y' : 'N') + '</td>' +
+      '<td><a href="' + d.musinsa_link + '" target="_blank">M</a></td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('row-count').textContent = filtered.length + '건';
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  event.target.classList.add('active');
+  document.getElementById('tab-pick').classList.toggle('hidden', tab !== 'pick');
+  document.getElementById('tab-history').classList.toggle('hidden', tab !== 'history');
+}
+
+filterTable();
+</script>
+</body>
+</html>
