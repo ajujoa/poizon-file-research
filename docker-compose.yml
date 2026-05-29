@@ -1,0 +1,34 @@
+services:
+  mariadb:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: root1234
+      MARIADB_DATABASE: poizon_research
+      MARIADB_USER: naver
+      MARIADB_PASSWORD: naver1234
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./xls:/app/xls
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+
+volumes:
+  mariadb_data:
