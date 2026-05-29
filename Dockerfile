@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Python 의존성
 RUN pip install --no-cache-dir \
+    playwright>=1.40.0 \
     pymysql>=1.0.0 \
     requests>=2.28.0 \
     pandas>=2.0.0 \
