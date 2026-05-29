@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir \
     pandas>=2.0.0 \
     numpy>=1.24.0 \
     openpyxl>=3.1.0 \
-    schedule>=1.2.0
+    schedule>=1.2.0 \
+    pytz
 
 # 프로젝트 코드
 COPY src/ /app/src/

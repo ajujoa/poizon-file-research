@@ -26,6 +26,7 @@ services:
       - ./logs:/app/logs
       - ./xls:/app/xls
       - ./config:/app/config:ro
+      - ./.git:/app/.git:ro
     restart: unless-stopped
     environment:
       - TZ=Asia/Seoul
