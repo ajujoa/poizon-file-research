@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-무신사 가격 경쟁력 Pick — musinsa_price < cn_lowest * 1.15 조건 필터링
+무신사 가격 경쟁력 Pick — musinsa_price < cn_lowest * 0.85 조건 필터링
 
-price_snapshot에서 최근 스냅샷 기준으로 조건 만족하는 상품-사이즈만
-pick_snapshot 테이블에 날짜별 저장.
+poizon_sku + musinsa 직접 조인 (price_snapshot 의존 제거).
+style_id + Size_KR 기준으로 매칭하여 pick_snapshot에 저장.
 
 Usage:
-  uv run python src/musinsa_pick.py              # 전체 pick
-  uv run python src/musinsa_pick.py --dry-run     # DB 저장 없이 출력만
+  python src/musinsa_pick.py              # 전체 pick
+  python src/musinsa_pick.py --dry-run     # DB 저장 없이 출력만
 """
 import configparser
 import logging
@@ -39,11 +39,11 @@ def get_db():
 
 
 def pick_products(conn, dry_run=False):
-    """price_snapshot에서 조건 만족하는 상품 → pick_snapshot에 저장"""
+    """poizon_sku + musinsa 직접 조인 → 조건 만족 상품 pick_snapshot에 저장"""
     cur = conn.cursor()
 
-    # 최근 스냅샷(10분 이내)에서 조건 필터링
-    cur.execute("""
+    # 조건: musinsa_price < cn_lowest * 0.85, 재고 있음, Size_KR 있음
+    sql = """
         INSERT INTO pick_snapshot (
             spu_id, style_id, brand, item_name, size_kr,
             poizon_est_payout, poizon_cn_lowest, poizon_avg_30_day,
@@ -53,37 +53,56 @@ def pick_products(conn, dry_run=False):
             pick_reason
         )
         SELECT
-            spu_id, style_id, brand, item_name, size_kr,
-            poizon_est_payout, poizon_cn_lowest, poizon_avg_30_day,
-            poizon_total_sales,
-            musinsa_price, musinsa_goods_no, musinsa_in_stock,
-            margin, margin_pct, cn_margin, cn_margin_pct,
-            CONCAT('musinsa(', musinsa_price, ') < cn_lowest(', poizon_cn_lowest,
-                   ') * 0.85 = ', ROUND(poizon_cn_lowest * 0.85),
-                   ' (수수료 15% 감안)')
-        FROM price_snapshot
-        WHERE snapshot_at >= NOW() - INTERVAL 10 MINUTE
-          AND musinsa_price < poizon_cn_lowest * 0.85
-          AND poizon_cn_lowest > 0
-          AND musinsa_price > 0
-          AND musinsa_in_stock = 1
-    """)
+            p.spu_id,
+            CAST(p.style_id AS CHAR) AS style_id,
+            p.brand,
+            p.item_name,
+            s.Size_KR,
+            s.est_payout,
+            s.cn_lowest,
+            s.avg_30_day,
+            s.total_sales,
+            m.price,
+            m.goods_no,
+            m.in_stock,
+            (m.price - s.est_payout) AS margin,
+            ROUND((m.price - s.est_payout) / NULLIF(s.est_payout, 0) * 100, 1) AS margin_pct,
+            (m.price - s.cn_lowest) AS cn_margin,
+            ROUND((m.price - s.cn_lowest) / NULLIF(s.cn_lowest, 0) * 100, 1) AS cn_margin_pct,
+            CONCAT('musinsa(', m.price, ') < cn_lowest(', s.cn_lowest,
+                   ') * 0.85 = ', ROUND(s.cn_lowest * 0.85),
+                   ' (수수료 15% 감안)') AS pick_reason
+        FROM poizon_spu p
+        JOIN poizon_sku s ON p.spu_id = s.spu_id
+        JOIN musinsa m ON
+            CAST(p.style_id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_general_ci
+            = CAST(m.style_id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_general_ci
+        WHERE m.price IS NOT NULL AND m.price > 0
+          AND s.cn_lowest IS NOT NULL AND s.cn_lowest > 0
+          AND m.in_stock = 1
+          AND s.Size_KR IS NOT NULL AND s.Size_KR != ''
+          AND m.price < s.cn_lowest * 0.85
+    """
 
     if dry_run:
-        conn.rollback()
         # count만 확인
         cur.execute("""
             SELECT COUNT(*) as cnt
-            FROM price_snapshot
-            WHERE snapshot_at >= NOW() - INTERVAL 10 MINUTE
-              AND musinsa_price < poizon_cn_lowest * 0.85
-              AND poizon_cn_lowest > 0
-              AND musinsa_price > 0
-              AND musinsa_in_stock = 1
+            FROM poizon_spu p
+            JOIN poizon_sku s ON p.spu_id = s.spu_id
+            JOIN musinsa m ON
+                CAST(p.style_id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_general_ci
+                = CAST(m.style_id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_general_ci
+            WHERE m.price IS NOT NULL AND m.price > 0
+              AND s.cn_lowest IS NOT NULL AND s.cn_lowest > 0
+              AND m.in_stock = 1
+              AND s.Size_KR IS NOT NULL AND s.Size_KR != ''
+              AND m.price < s.cn_lowest * 0.85
         """)
         count = cur.fetchone()["cnt"]
         log.info(f"[dry-run] Pick 대상: {count}건 (저장 안 함)")
     else:
+        cur.execute(sql)
         conn.commit()
         count = cur.rowcount
         log.info(f"Pick 저장: {count}건")
