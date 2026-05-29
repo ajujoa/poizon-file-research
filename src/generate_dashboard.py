@@ -7,7 +7,6 @@ Tailscale 파일 서버: https://ubuntu-llm.tail931162.ts.net/poizon_dashboard/
 """
 import configparser
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -17,15 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = PROJECT_ROOT / "src" / "dashboard_template.html"
 OUTPUT_DIR = Path("/app/output")
 MUSINSA_PRODUCT = "https://www.musinsa.com/products/{goods_no}"
-POIZON_PRODUCT = "https://kr.poizon.com/product/{slug}-{spu_id}"
-
-
-def make_slug(name: str) -> str:
-    """item_name → URL slug (영문/숫자/공백만, 공백→하이픈)"""
-    s = name.lower()
-    s = re.sub(r'[^a-z0-9\s-]', '', s)
-    s = re.sub(r'\s+', '-', s)
-    return s.strip('-')
+POIZON_SEARCH = "https://kr.poizon.com/search?keyword={style_id}&track_referer_source=m1"
 
 
 def get_db():
@@ -99,10 +90,7 @@ def render_dashboard(conn):
             "in_stock": bool(row["musinsa_in_stock"]),
             "musinsa_name": row["musinsa_name"] or "",
             "snap_date": str(row["snap_date"]),
-            "poizon_link": POIZON_PRODUCT.format(
-                slug=make_slug(row["item_name"] or ""),
-                spu_id=row["spu_id"]
-            ),
+            "poizon_link": POIZON_SEARCH.format(style_id=row["style_id"]),
             "musinsa_link": MUSINSA_PRODUCT.format(goods_no=row["musinsa_goods_no"]),
         })
 
