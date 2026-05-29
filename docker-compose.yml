@@ -43,6 +43,19 @@ services:
       - app
     restart: unless-stopped
 
+  monitor:
+    build: .
+    command: python /app/src/price_monitor.py
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+
 volumes:
   mariadb_data:
   output_data:
