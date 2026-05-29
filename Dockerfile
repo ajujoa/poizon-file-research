@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir \
 # 프로젝트 코드
 COPY src/ /app/src/
 COPY config/ /app/config/
-COPY xls/ /app/xls/
+RUN mkdir -p /app/xls /app/logs
 
 # DB host를 Docker 서비스명으로 변경
 RUN sed -i 's/^host = .*/host = mariadb/' /app/config/dbconfig.ini
